@@ -1,0 +1,85 @@
+<!doctype html><html xmlns=http://www.w3.org/1999/xhtml xml:lang=en-us lang=en-us><head><link href=http://gmpg.org/xfn/11 rel=profile><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1,maximum-scale=1"><title>Clojure Java Inter-op and Google Drive Api - Part I &middot; No Title</title><link href=/webfonts/junction.css rel=stylesheet type=text/css><link rel=stylesheet href=//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/tomorrow.min.css><link rel=stylesheet href=/css/poole.css><link rel=stylesheet href=/css/lanyon.css><link rel=stylesheet href=/css/style.css><link rel="shortcut icon" href=/favicon.ico><link href=/index.xml rel=alternate type=application/rss+xml title="No Title"></head><body><div class=masthead><div class=container><h3 class=masthead-title><a href=/ title=Home>No Title</a>
+<small>When I finaly take it upon myself to write, this is what happens!!!</small></h3></div></div><div class="content container"><div class=post><h1>Clojure Java Inter-op and Google Drive Api - Part I</h1><span class=post-date>Jun 28, 2013</span><p>One of the biggest advantages of Clojure claimed by its community is its interoperability with java. I decided to take take them on there word and test it out with Google drive api, and see how flexible and native it feels.</p><p>We will convert a simple program given on the main documentation page of Google Drive api page to a Clojure program. First we will try to keep it as same as there implementation having least amount of changes. Later we will try to make it more Clojure like, by using its native libraries and using Google libraries to a minimum.</p><p>You will have to do the basic setup form this <a href=https://developers.google.com/drive/quickstart-java>page</a>. May be even give a quick look a the java implementation, because we will be following it quite faithfully.</p><h2 id=setup>Setup</h2><p>First you should create a new lein project:</p><pre><code class=language-clojure>$ lein new sample-drive app
+</code></pre><p>This will create a set of files and some basic stuff. Now you will have to add some dependencies add required libraries to the <code>project.clj</code> file.
+You should be able to find this file at the root of the new project <code>lein</code> created for you. Change it to look some thing like this.</p><pre><code class=language-clojure>(defproject simple-drive &quot;0.1.0-SNAPSHOT&quot;
+  :description &quot;FIXME: write description&quot;
+  :url &quot;http://example.com/FIXME&quot;
+  :license {:name &quot;Eclipse Public License&quot;
+            :url &quot;http://www.eclipse.org/legal/epl-v10.html&quot;}
+  :dependencies [[org.clojure/clojure &quot;1.5.1&quot;]
+                 [com.google.oauth-client/google-oauth-client &quot;1.15.0-rc&quot;]
+                 [com.google.http-client/google-http-client-jackson &quot;1.15.0-rc&quot;]
+                 [com.google.apis/google-api-services-drive &quot;v2-rev79-1.15.0-rc&quot;]]
+  :main simple-drive.core)
+</code></pre><p><code>google-api-services-drive</code> is the the only library explicitly mentioned on the download page. But the other (<code>google-oauth-client</code>, <code>google-http-client-jackson</code>) are dependencies. You could use third party libraries that provide similar functionality like, <code>clj-oauth2</code>.</p><p>Another interesting not is we are getting them from maven repositories, which are essentially cpan or pypy like function for java. And the fact that we are even able to leverage that from Clojure is amazing.</p><h2 id=program>Program</h2><p>The program itself is a single function in the given sample, but will split it up slightly so that we can keep the main program in a single let statement. Much of the code is java directly converted to clojure.</p><pre><code class=language-clojure>(ns simple-drive.core
+  (:gen-class))
+(import '(com.google.api.client.googleapis.auth.oauth2
+          GoogleAuthorizationCodeFlow GoogleCredential
+          GoogleTokenResponse GoogleAuthorizationCodeFlow$Builder)
+        '(com.google.api.client.http FileContent HttpTransport)
+        '(com.google.api.client.http.javanet NetHttpTransport)
+        '(com.google.api.client.json JsonFactory)
+        '(com.google.api.client.json.jackson JacksonFactory)
+        '(com.google.api.services.drive Drive DriveScopes Drive$Builder)
+        '(com.google.api.services.drive.model File))
+(require 'clojure.java.io)
+
+;; you have to get your own from google as mentioned in the help page.
+(def CLIENT_ID &quot;SECRET_ID&quot;)
+(def CLIENT_SECRET &quot;SECRET_KEY&quot;)
+
+(def REDIRECT_URI &quot;urn:ietf:wg:oauth:2.0:oob&quot;)
+
+(defn get-auth-code [url]
+  (println &quot;Please open the following URL in your browser &quot;
+           &quot;then type the authorization code:&quot;)
+  (println (str &quot;  &quot; url))
+  (read-line))
+
+(defn insert-file []
+  (let [body (new File)]
+    (doto body
+      (.setTitle &quot;Readme&quot;)
+      (.setDescription &quot;A test document&quot;)
+      (.setMimeType &quot;text/plain&quot;))
+    body))
+
+(defn do-the-stuff
+  []
+  (let [httpTransport (new NetHttpTransport)
+        jsonFactory (new JacksonFactory)
+        flow (-&gt; (new GoogleAuthorizationCodeFlow$Builder httpTransport
+                      jsonFactory CLIENT_ID CLIENT_SECRET
+                      (list (. DriveScopes DRIVE)))
+                 (.setAccessType &quot;online&quot;)
+                 (.setApprovalPrompt &quot;auto&quot;)
+                 (.build))
+        url (-&gt; (.newAuthorizationUrl flow)
+                (.setRedirectUri REDIRECT_URI)
+                (.build))
+        code (get-auth-code url)
+        response (-&gt; (.newTokenRequest flow code)
+                     (.setRedirectUri REDIRECT_URI)
+                     (.execute))
+        credential (-&gt; (new GoogleCredential)
+                       (.setFromTokenResponse response))
+        ;; Create a new authorized API client
+        service (-&gt; (new Drive$Builder httpTransport
+                         jsonFactory credential) (.build))
+        body (insert-file)
+        fileContent (clojure.java.io/file &quot;README.md&quot;)
+        mediaContent (new FileContent &quot;text/plain&quot; fileContent)
+        file (-&gt; (.files service)
+                 (.insert body mediaContent)
+                 (.execute))]
+    (println &quot;File ID:&quot; (.getId file))))
+
+(defn -main
+  &quot;This is the equvalent of public static void main.&quot;
+  [&amp; args]
+  ;; work around dangerous default behaviour in Clojure
+  (alter-var-root #'*read-eval* (constantly false))
+  (do-the-stuff))
+</code></pre><p>Some of the stuff you might note, are that we have to explicitly import all the java inner classes. In java these are available to you if you just import the containing class.
+The whole program is written in a imperative manner, you set a whole bunch of variables, in between you do a few things.
+Instead of <code>(new classname &amp;args)</code> we could have just said <code>(classname. &amp;args)</code>.</p></div></div><footer><link href=//cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css rel=stylesheet><div class=container><div class=footer-col-wrapper><ul class=social-media-list><li><b>Hittaruki.info</b></li><li><a href=/about/><i class="fa fa-at fa-lg"></i>About</a></li><li><a href=https://github.com/vigneshsarma><i class="fa fa-github-alt fa-lg"></i><span class=username>vigneshsarma</span></a></li><li><a href=https://twitter.com/vigneshsarma><i class="fa fa-twitter fa-lg"></i><span class=username>vigneshsarma</span></a></li><li><a href=https://www.linkedin.com/in/vigneshsarma/><i class="fa fa-linkedin fa-lg"></i></a></li><li><a href=https://www.instagram.com/vigneshsarma><i class="fa fa-instagram fa-lg"></i></a></li><li><a href=/index.xml><i class="fa fa-rss fa-lg"></i></a></li></ul></div></div></footer><script src=//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js></script><script src=//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/clojure-repl.min.js></script><script src=//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/clojure.min.js></script><script src=//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/haskell.min.js></script><script src=//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/yaml.min.js></script><script>(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)})(window,document,'script','//www.google-analytics.com/analytics.js','ga');ga('create','UA-34515323-1','auto');ga('send','pageview');</script><script>hljs.initHighlightingOnLoad();</script></body></html>

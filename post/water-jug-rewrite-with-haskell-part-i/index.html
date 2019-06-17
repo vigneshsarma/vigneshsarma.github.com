@@ -1,0 +1,114 @@
+<!doctype html><html xmlns=http://www.w3.org/1999/xhtml xml:lang=en-us lang=en-us><head><link href=http://gmpg.org/xfn/11 rel=profile><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1,maximum-scale=1"><title>Water Jug Rewrite With Haskell Part I &middot; No Title</title><link href=/webfonts/junction.css rel=stylesheet type=text/css><link rel=stylesheet href=//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/tomorrow.min.css><link rel=stylesheet href=/css/poole.css><link rel=stylesheet href=/css/lanyon.css><link rel=stylesheet href=/css/style.css><link rel="shortcut icon" href=/favicon.ico><link href=/index.xml rel=alternate type=application/rss+xml title="No Title"></head><body><div class=masthead><div class=container><h3 class=masthead-title><a href=/ title=Home>No Title</a>
+<small>When I finaly take it upon myself to write, this is what happens!!!</small></h3></div></div><div class="content container"><div class=post><h1>Water Jug Rewrite With Haskell Part I</h1><span class=post-date>May 4, 2018</span><h2 id=history>History</h2><p>Water jug problem is a famous problem commonly found in AI texts. There are few different version of it like these:</p><ol><li><a href=https://www.eecis.udel.edu/~mccoy/courses/cisc4-681.10f/lec-materials/handouts/search-water-jug-handout.pdf>cis.udel.edu</a></li><li><a href=http://www.math.tamu.edu/~dallen/hollywood/diehard/diehard.htm>math.tamu.edu</a></li></ol><p>I also had to do the same problem in my own college days. At the time I was learning python and thought it might be an interesting problem to solve with <a href=https://github.com/vigneshsarma/water-jug>python</a>. Looking at the code now I feel embarrassed. Am not even sure how I got it working. Rewriting it in python seems rather uninteresting now. Rather using a static functional language like Haskell seamed to make it more interesting. Obviously once you look at the code you will realize currently I don&rsquo;t know much of Haskell either.</p><p>Rather than trying to solve the problem in one shot, I decided to limit the initial version some what.</p><h2 id=updated-problem>Updated Problem</h2><p>There can be some Water Jars, with any given capacity. The challenge will be to start from that to reach the given final state which will be get some specified quantity of water in these Jars. These Jugs have no measurements. But you know the full capacity of the Jugs.</p><p>As a starting point max number of Jars will be limited to two.</p><h2 id=data>Data</h2><p>One of the most interesting things about writing in a language like Haskell is how Types and data become powerful design tools. So to start with let us define <code>Jug</code> and <code>State</code> which is the combination of <code>Jug</code>s.</p><pre><code class=language-haskell>
+-- WaterJug.hs
+
+--  Jug capacity, holding
+data Jug = Jug Int Int deriving (Show, Eq, Ord)
+
+-- State left right
+data State = State Jug Jug deriving (Show, Eq, Ord)
+
+-- Problem initial state, destination state
+data Problem = Problem State State deriving (Show, Eq, Ord)
+
+-- StateMap, type alias
+type StateMap = M.Map State [State]
+
+emptyJug :: Int -&gt; Jug
+emptyJug c = Jug c 0
+
+newProblem :: Int -&gt; Int -&gt; Int -&gt; Int -&gt; Problem
+newProblem rc lc r l = Problem (State (emptyJug rc) (emptyJug lc)) (State (Jug rc r) (Jug lc l))
+</code></pre><p>The <code>deriving</code> ensures that we can have reasonable string representation for these objects, they can be equated to each other, ordered etc.</p><p>All these types we created using data are tuples. They can only contain two arguments. They are also positional.</p><p><code>emptyJug</code> function can be used to create an empty <code>Jug</code> of any given capacity.</p><p><code>newProblem</code> function can be used to define a problem which include jug capacities and the final state we want to achieve.</p><h2 id=possible-operations-on-given-jugs>Possible Operations on Given Jugs</h2><p>Given two <code>Jug</code>s you can do 6 operations. Depending on what state each <code>Jug</code>s are in only some of these operations will be valid at any given state.</p><h3 id=the-operations-are>The operations are</h3><ul><li>given a <code>Jug</code> that has liquid less that full, it can be made full.</li></ul><pre><code class=language-haskell>forRightFull :: State -&gt; Maybe State
+forRightFull (State (Jug rc rh) lj)
+  | rc &lt;= rh = Nothing
+  | otherwise = Just $ State (Jug rc rc) lj
+
+</code></pre><ul><li>Given a <code>Jug</code> that is non empty and the other <code>Jug</code> has some space left, Some of the liquid can be poured from this to the other one.</li></ul><pre><code class=language-haskell>forRightToLeft :: State -&gt; Maybe State
+forRightToLeft (State (Jug rc rh) (Jug lc lh))
+  | rh == 0 || lc &lt;= lh = Nothing
+  | otherwise = Just $ State (Jug rc (rh -liquidToTransfer)) (Jug lc (lh + liquidToTransfer))
+    where
+      liquidToTransfer = if maxCanPour &gt;= rh then rh else maxCanPour
+      maxCanPour = lc - lh
+</code></pre><ul><li>Given a non empty <code>Jug</code> it can be emptied.</li></ul><pre><code class=language-haskell>forRightToEmpty :: State -&gt; Maybe State
+forRightToEmpty (State (Jug rc rh) lj)
+  | rh == 0 = Nothing
+  | otherwise = Just $ State (empty rc) lj
+
+</code></pre><ul><li>These operations can be replicated on second <code>Jug</code> as is except the <code>Jug</code>s should be reversed. <code>interchange</code> is a function to help with that.</li></ul><pre><code class=language-haskell>interchange :: (State -&gt; Maybe State) -&gt; State -&gt; Maybe State
+interchange f (State rj lj) =
+  case f (State lj rj) of
+    Nothing -&gt; Nothing
+    Just (State rj' lj') -&gt; Just (State lj' rj')
+</code></pre><ul><li>operations for the left written using operations for right and <code>interchange</code>.</li></ul><pre><code class=language-haskell>forLeftFull :: State -&gt; Maybe State
+forLeftFull = interchange forRightFull
+
+forLeftToRight :: State -&gt; Maybe State
+forLeftToRight = interchange forRightToLeft
+
+forLeftToEmpty :: State -&gt; Maybe State
+forLeftToEmpty = interchange forRightToEmpty
+</code></pre><p>Few interesting things to note here. All the action functions have the same signature. <code>interchange</code> takes a function as first parameter and we are partially applying it giving us the exact type signature we required. There common type allows us to put all these functions in a <code>list</code>. An important feature we will be using next. We use <code>option</code>(<code>Maybe</code>) type which allows us denote irrelevant actions on given state.</p><h2 id=compute-next-states>Compute Next States</h2><p>Given any <code>State</code>, you can apply all these functions to get all the possible next <code>State</code> we can take the Jars to. I ended up doing that like so:</p><pre><code class=language-haskell>getNextState :: State -&gt; [State]
+getNextState s = catMaybes $ map (\f -&gt; f s) toNextStates
+  where
+    toNextStates = [forRightToLeft, forRightToEmpty, forLeftFull,
+                    forLeftToRight, forLeftToEmpty, forRightFull]
+</code></pre><p><code>toNextStates</code> is a list of the functions that were defined in the previous section. The only way all these functions can be put in a single list is if they have the same signature.</p><p><code>catMaybes</code> filters out all the <code>Nothing</code>s and takes out the <code>Just</code> values. Thus leaving us with actual/relevant changes.</p><h2 id=finding-relevent-states>Finding relevent states</h2><p>Now given a starting state and final state, we try to find all the possible states between them. The <code>allStates</code> function is a kind of wrapper for the inner <code>allStates'</code> function. <code>allStates</code> calls the inner functions with a correct set of initial arguments, which implements most of the logic.</p><pre><code class=language-haskell>allStates :: Problem -&gt; StateMap
+allStates (Problem i f) =
+  let
+    allStates' :: State -&gt; S.Set State -&gt; StateMap -&gt; StateMap
+    allStates' current queue m
+      | S.null queue = m
+      | otherwise = allStates' next queue'' m'
+      where
+        ns = getNextState current
+        -- insert current state and its possible transitions to the StateMap
+        m' = M.insert current ns m
+        queue' = S.delete current queue
+        -- filter out all the states that have already been visited.
+        new_q = S.fromList $ filter (\s -&gt; M.notMember s m) ns
+        -- if final state is in one of these, we dont care for other transitions
+        -- from that point
+        queue'' = if S.member f new_q
+          then queue'
+          else S.union queue' new_q
+        next = head $ S.toList queue''
+  in
+    allStates' i (S.fromList [i]) M.empty
+</code></pre><p>You can think of the <code>where</code> clauses as being executed top to bottom. In reality though they are all lazy and could be executed as and when the need arises. So order has no meaning.</p><h2 id=is-there-a-possible-path-from-initial-to-final-state>Is there a possible path from initial to final state?</h2><p>Once we have the <code>StateMap</code> we should be able to find if there is a possible path from initial to final state. For that we flatten out the values of <code>StateMap</code> and check if the final state is one of <code>State</code>.</p><pre><code class=language-haskell>isPathPossible :: Problem -&gt; StateMap -&gt; Bool
+isPathPossible (Problem _ f) m = S.member f $ S.fromList $ concat $ M.elems m
+</code></pre><h2 id=find-paths-from-initial-to-final-state>Find Paths from Initial to Final State</h2><p>Once we know there is a path, we walk the <code>StateMap</code> depth first to find possible paths to the final state. We look at this like a tree with initial state as the root node. When we find a path that reaches the final state we add that to possible paths and continue with our search. One of the optimizations we do is, if we find cycles, ie same state being repeated we end our search on that branch. Similarly if a state is not in <code>StateMap</code> once again we end our search on that branch. In all other cases we fold over next states and call <code>findPaths'</code> recursively. <code>findPaths</code> and <code>findPaths'</code> are similar to <code>allStates</code> and <code>allStates'</code> in that <code>findPaths</code> is mostly a limited wrapper over the inner function which implements most of the logic.</p><pre><code class=language-haskell>findPaths :: Problem -&gt; StateMap -&gt; [[State]]
+findPaths (Problem i f) m =
+  findPaths' [i] []
+  where
+    findPaths' :: [State] -&gt; [[State]] -&gt; [[State]]
+    findPaths' (x:xs) ps
+      -- we have found a cycle, return the routes we have found
+      -- and end the search on this branch
+      | x `elem` xs = ps
+      -- found a full path, add that to routes and end branch
+      | x == f  = (reverse $ x:xs):ps
+      | otherwise = case M.lookup x m of
+                      Nothing -&gt; ps
+                      Just ls -&gt; foldl (\ps' l-&gt; findPaths' (l:x:xs) ps') ps ls
+</code></pre><h2 id=shortest-of-the-paths>Shortest of the Paths</h2><p>Now that we have a bunch of candidates for paths to final state, its time to find the shortest one. For that we just compare the length of each of the paths like so:</p><pre><code class=language-haskell>shortestPath :: [[State]] -&gt; [State]
+shortestPath ps = foldl (\a x -&gt; if (length a) &gt; (length x)
+                            then x else a) (head ps) (tail ps)
+</code></pre><h2 id=putting-it-all-together>Putting it all together</h2><p>Now we have all the pieces to solve a given <code>Problem</code>.</p><pre><code class=language-haskell>solve :: Problem -&gt; Maybe [State]
+solve p = if isPathPossible p ss
+          then Just $ shortestPath $ findPaths p ss
+          else Nothing
+  where
+    ss = allStates p
+</code></pre><p>The returned type is a bit interesting, it says given a <code>Problem</code> maybe we have a solution to get from initial to final state. :)</p><h2 id=conclusion>Conclusion</h2><p>To conclude for now let me present a simple REPL session.</p><pre><code class=language-haskell>&gt; :l WaterJug.hs
+&gt; solve $ newProblem 4 3 2 2
+Nothing
+&gt;
+&gt; solve $ newProblem 5 3 4 0
+Just [State (Jug 5 0) (Jug 3 0),State (Jug 5 5) (Jug 3 0),State (Jug 5 2) (Jug 3 3),State (Jug 5 2) (Jug 3 0),State (Jug 5 0) (Jug 3 2),State (Jug 5 5) (Jug 3 2),State (Jug 5 4) (Jug 3 3),State (Jug 5 4) (Jug 3 0)]
+&gt;
+&gt; solve $ newProblem 4 3 2 0
+Just [State (Jug 4 0) (Jug 3 0),State (Jug 4 0) (Jug 3 3),State (Jug 4 3) (Jug 3 0),State (Jug 4 3) (Jug 3 3),State (Jug 4 4) (Jug 3 2),State (Jug 4 0) (Jug 3 2),State (Jug 4 2) (Jug 3 0)]
+&gt;
+</code></pre><p>Next time we will try to solve this for <code>n</code> jugs.</p></div></div><footer><link href=//cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css rel=stylesheet><div class=container><div class=footer-col-wrapper><ul class=social-media-list><li><b>Hittaruki.info</b></li><li><a href=/about/><i class="fa fa-at fa-lg"></i>About</a></li><li><a href=https://github.com/vigneshsarma><i class="fa fa-github-alt fa-lg"></i><span class=username>vigneshsarma</span></a></li><li><a href=https://twitter.com/vigneshsarma><i class="fa fa-twitter fa-lg"></i><span class=username>vigneshsarma</span></a></li><li><a href=https://www.linkedin.com/in/vigneshsarma/><i class="fa fa-linkedin fa-lg"></i></a></li><li><a href=https://www.instagram.com/vigneshsarma><i class="fa fa-instagram fa-lg"></i></a></li><li><a href=/index.xml><i class="fa fa-rss fa-lg"></i></a></li></ul></div></div></footer><script src=//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js></script><script src=//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/clojure-repl.min.js></script><script src=//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/clojure.min.js></script><script src=//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/haskell.min.js></script><script src=//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/yaml.min.js></script><script>(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)})(window,document,'script','//www.google-analytics.com/analytics.js','ga');ga('create','UA-34515323-1','auto');ga('send','pageview');</script><script>hljs.initHighlightingOnLoad();</script></body></html>

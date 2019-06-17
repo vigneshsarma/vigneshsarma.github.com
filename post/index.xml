@@ -1,0 +1,398 @@
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Posts</title><generator uri="https://gohugo.io">Hugo</generator><link>https://hittaruki.info/post/</link><language>en-us</language><author>Vignesh Sarma K</author><copyright>This work is licensed under a Creative Commons Attribution-ShareAlike 4.0 International License.</copyright><updated>Fri, 04 May 2018 22:46:18 &#43;0530</updated><item><title>Water Jug Rewrite With Haskell Part I</title><link>https://hittaruki.info/post/water-jug-rewrite-with-haskell-part-i/</link><pubDate>Fri, 04 May 2018 22:46:18 &#43;0530</pubDate><author>Vignesh Sarma K</author><guid>https://hittaruki.info/post/water-jug-rewrite-with-haskell-part-i/</guid><description>
+&lt;h2 id=&#34;history&#34;&gt;History&lt;/h2&gt;
+&lt;p&gt;Water jug problem is a famous problem commonly found in AI texts. There are few different version of it like these:&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;a href=&#34;https://www.eecis.udel.edu/~mccoy/courses/cisc4-681.10f/lec-materials/handouts/search-water-jug-handout.pdf&#34;&gt;cis.udel.edu&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&#34;http://www.math.tamu.edu/~dallen/hollywood/diehard/diehard.htm&#34;&gt;math.tamu.edu&lt;/a&gt;&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;I also had to do the same problem in my own college days. At the time I was learning python and thought it might be an interesting problem to solve with &lt;a href=&#34;https://github.com/vigneshsarma/water-jug&#34;&gt;python&lt;/a&gt;. Looking at the code now I feel embarrassed. Am not even sure how I got it working. Rewriting it in python seems rather uninteresting now. Rather using a static functional language like Haskell seamed to make it more interesting. Obviously once you look at the code you will realize currently I don&amp;rsquo;t know much of Haskell either.&lt;/p&gt;
+&lt;p&gt;Rather than trying to solve the problem in one shot, I decided to limit the initial version some what.&lt;/p&gt;
+&lt;h2 id=&#34;updated-problem&#34;&gt;Updated Problem&lt;/h2&gt;
+&lt;p&gt;There can be some Water Jars, with any given capacity. The challenge will be to start from that to reach the given final state which will be get some specified quantity of water in these Jars. These Jugs have no measurements. But you know the full capacity of the Jugs.&lt;/p&gt;
+&lt;p&gt;As a starting point max number of Jars will be limited to two.&lt;/p&gt;
+&lt;h2 id=&#34;data&#34;&gt;Data&lt;/h2&gt;
+&lt;p&gt;One of the most interesting things about writing in a language like Haskell is how Types and data become powerful design tools. So to start with let us define &lt;code&gt;Jug&lt;/code&gt; and &lt;code&gt;State&lt;/code&gt; which is the combination of &lt;code&gt;Jug&lt;/code&gt;s.&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&#34;language-haskell&#34;&gt;
+-- WaterJug.hs
+-- Jug capacity, holding
+data Jug = Jug Int Int deriving (Show, Eq, Ord)
+-- State left right
+data State = State Jug Jug deriving (Show, Eq, Ord)
+-- Problem initial state, destination state
+data Problem = Problem State State deriving (Show, Eq, Ord)
+-- StateMap, type alias
+type StateMap = M.Map State [State]
+emptyJug :: Int -&amp;gt; Jug
+emptyJug c = Jug c 0
+newProblem :: Int -&amp;gt; Int -&amp;gt; Int -&amp;gt; Int -&amp;gt; Problem
+newProblem rc lc r l = Problem (State (emptyJug rc) (emptyJug lc)) (State (Jug rc r) (Jug lc l))
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;The &lt;code&gt;deriving&lt;/code&gt; ensures that we can have reasonable string representation for these objects, they can be equated to each other, ordered etc.&lt;/p&gt;
+&lt;p&gt;All these types we created using data are tuples. They can only contain two arguments. They are also positional.&lt;/p&gt;
+&lt;p&gt;&lt;code&gt;emptyJug&lt;/code&gt; function can be used to create an empty &lt;code&gt;Jug&lt;/code&gt; of any given capacity.&lt;/p&gt;
+&lt;p&gt;&lt;code&gt;newProblem&lt;/code&gt; function can be used to define a problem which include jug capacities and the final state we want to achieve.&lt;/p&gt;
+&lt;h2 id=&#34;possible-operations-on-given-jugs&#34;&gt;Possible Operations on Given Jugs&lt;/h2&gt;
+&lt;p&gt;Given two &lt;code&gt;Jug&lt;/code&gt;s you can do 6 operations. Depending on what state each &lt;code&gt;Jug&lt;/code&gt;s are in only some of these operations will be valid at any given state.&lt;/p&gt;
+&lt;h3 id=&#34;the-operations-are&#34;&gt;The operations are&lt;/h3&gt;
+&lt;ul&gt;
+&lt;li&gt;given a &lt;code&gt;Jug&lt;/code&gt; that has liquid less that full, it can be made full.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;pre&gt;&lt;code class=&#34;language-haskell&#34;&gt;forRightFull :: State -&amp;gt; Maybe State
+forRightFull (State (Jug rc rh) lj)
+| rc &amp;lt;= rh = Nothing
+| otherwise = Just $ State (Jug rc rc) lj
+&lt;/code&gt;&lt;/pre&gt;
+&lt;ul&gt;
+&lt;li&gt;Given a &lt;code&gt;Jug&lt;/code&gt; that is non empty and the other &lt;code&gt;Jug&lt;/code&gt; has some space left, Some of the liquid can be poured from this to the other one.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;pre&gt;&lt;code class=&#34;language-haskell&#34;&gt;forRightToLeft :: State -&amp;gt; Maybe State
+forRightToLeft (State (Jug rc rh) (Jug lc lh))
+| rh == 0 || lc &amp;lt;= lh = Nothing
+| otherwise = Just $ State (Jug rc (rh -liquidToTransfer)) (Jug lc (lh + liquidToTransfer))
+where
+liquidToTransfer = if maxCanPour &amp;gt;= rh then rh else maxCanPour
+maxCanPour = lc - lh
+&lt;/code&gt;&lt;/pre&gt;
+&lt;ul&gt;
+&lt;li&gt;Given a non empty &lt;code&gt;Jug&lt;/code&gt; it can be emptied.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;pre&gt;&lt;code class=&#34;language-haskell&#34;&gt;forRightToEmpty :: State -&amp;gt; Maybe State
+forRightToEmpty (State (Jug rc rh) lj)
+| rh == 0 = Nothing
+| otherwise = Just $ State (empty rc) lj
+&lt;/code&gt;&lt;/pre&gt;
+&lt;ul&gt;
+&lt;li&gt;These operations can be replicated on second &lt;code&gt;Jug&lt;/code&gt; as is except the &lt;code&gt;Jug&lt;/code&gt;s should be reversed. &lt;code&gt;interchange&lt;/code&gt; is a function to help with that.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;pre&gt;&lt;code class=&#34;language-haskell&#34;&gt;interchange :: (State -&amp;gt; Maybe State) -&amp;gt; State -&amp;gt; Maybe State
+interchange f (State rj lj) =
+case f (State lj rj) of
+Nothing -&amp;gt; Nothing
+Just (State rj&#39; lj&#39;) -&amp;gt; Just (State lj&#39; rj&#39;)
+&lt;/code&gt;&lt;/pre&gt;
+&lt;ul&gt;
+&lt;li&gt;operations for the left written using operations for right and &lt;code&gt;interchange&lt;/code&gt;.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;pre&gt;&lt;code class=&#34;language-haskell&#34;&gt;forLeftFull :: State -&amp;gt; Maybe State
+forLeftFull = interchange forRightFull
+forLeftToRight :: State -&amp;gt; Maybe State
+forLeftToRight = interchange forRightToLeft
+forLeftToEmpty :: State -&amp;gt; Maybe State
+forLeftToEmpty = interchange forRightToEmpty
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;Few interesting things to note here. All the action functions have the same signature. &lt;code&gt;interchange&lt;/code&gt; takes a function as first parameter and we are partially applying it giving us the exact type signature we required. There common type allows us to put all these functions in a &lt;code&gt;list&lt;/code&gt;. An important feature we will be using next. We use &lt;code&gt;option&lt;/code&gt;(&lt;code&gt;Maybe&lt;/code&gt;) type which allows us denote irrelevant actions on given state.&lt;/p&gt;
+&lt;h2 id=&#34;compute-next-states&#34;&gt;Compute Next States&lt;/h2&gt;
+&lt;p&gt;Given any &lt;code&gt;State&lt;/code&gt;, you can apply all these functions to get all the possible next &lt;code&gt;State&lt;/code&gt; we can take the Jars to. I ended up doing that like so:&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&#34;language-haskell&#34;&gt;getNextState :: State -&amp;gt; [State]
+getNextState s = catMaybes $ map (\f -&amp;gt; f s) toNextStates
+where
+toNextStates = [forRightToLeft, forRightToEmpty, forLeftFull,
+forLeftToRight, forLeftToEmpty, forRightFull]
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;&lt;code&gt;toNextStates&lt;/code&gt; is a list of the functions that were defined in the previous section. The only way all these functions can be put in a single list is if they have the same signature.&lt;/p&gt;
+&lt;p&gt;&lt;code&gt;catMaybes&lt;/code&gt; filters out all the &lt;code&gt;Nothing&lt;/code&gt;s and takes out the &lt;code&gt;Just&lt;/code&gt; values. Thus leaving us with actual/relevant changes.&lt;/p&gt;
+&lt;h2 id=&#34;finding-relevent-states&#34;&gt;Finding relevent states&lt;/h2&gt;
+&lt;p&gt;Now given a starting state and final state, we try to find all the possible states between them. The &lt;code&gt;allStates&lt;/code&gt; function is a kind of wrapper for the inner &lt;code&gt;allStates&#39;&lt;/code&gt; function. &lt;code&gt;allStates&lt;/code&gt; calls the inner functions with a correct set of initial arguments, which implements most of the logic.&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&#34;language-haskell&#34;&gt;allStates :: Problem -&amp;gt; StateMap
+allStates (Problem i f) =
+let
+allStates&#39; :: State -&amp;gt; S.Set State -&amp;gt; StateMap -&amp;gt; StateMap
+allStates&#39; current queue m
+| S.null queue = m
+| otherwise = allStates&#39; next queue&#39;&#39; m&#39;
+where
+ns = getNextState current
+-- insert current state and its possible transitions to the StateMap
+m&#39; = M.insert current ns m
+queue&#39; = S.delete current queue
+-- filter out all the states that have already been visited.
+new_q = S.fromList $ filter (\s -&amp;gt; M.notMember s m) ns
+-- if final state is in one of these, we dont care for other transitions
+-- from that point
+queue&#39;&#39; = if S.member f new_q
+then queue&#39;
+else S.union queue&#39; new_q
+next = head $ S.toList queue&#39;&#39;
+in
+allStates&#39; i (S.fromList [i]) M.empty
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;You can think of the &lt;code&gt;where&lt;/code&gt; clauses as being executed top to bottom. In reality though they are all lazy and could be executed as and when the need arises. So order has no meaning.&lt;/p&gt;
+&lt;h2 id=&#34;is-there-a-possible-path-from-initial-to-final-state&#34;&gt;Is there a possible path from initial to final state?&lt;/h2&gt;
+&lt;p&gt;Once we have the &lt;code&gt;StateMap&lt;/code&gt; we should be able to find if there is a possible path from initial to final state. For that we flatten out the values of &lt;code&gt;StateMap&lt;/code&gt; and check if the final state is one of &lt;code&gt;State&lt;/code&gt;.&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&#34;language-haskell&#34;&gt;isPathPossible :: Problem -&amp;gt; StateMap -&amp;gt; Bool
+isPathPossible (Problem _ f) m = S.member f $ S.fromList $ concat $ M.elems m
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h2 id=&#34;find-paths-from-initial-to-final-state&#34;&gt;Find Paths from Initial to Final State&lt;/h2&gt;
+&lt;p&gt;Once we know there is a path, we walk the &lt;code&gt;StateMap&lt;/code&gt; depth first to find possible paths to the final state. We look at this like a tree with initial state as the root node. When we find a path that reaches the final state we add that to possible paths and continue with our search. One of the optimizations we do is, if we find cycles, ie same state being repeated we end our search on that branch. Similarly if a state is not in &lt;code&gt;StateMap&lt;/code&gt; once again we end our search on that branch. In all other cases we fold over next states and call &lt;code&gt;findPaths&#39;&lt;/code&gt; recursively. &lt;code&gt;findPaths&lt;/code&gt; and &lt;code&gt;findPaths&#39;&lt;/code&gt; are similar to &lt;code&gt;allStates&lt;/code&gt; and &lt;code&gt;allStates&#39;&lt;/code&gt; in that &lt;code&gt;findPaths&lt;/code&gt; is mostly a limited wrapper over the inner function which implements most of the logic.&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&#34;language-haskell&#34;&gt;findPaths :: Problem -&amp;gt; StateMap -&amp;gt; [[State]]
+findPaths (Problem i f) m =
+findPaths&#39; [i] []
+where
+findPaths&#39; :: [State] -&amp;gt; [[State]] -&amp;gt; [[State]]
+findPaths&#39; (x:xs) ps
+-- we have found a cycle, return the routes we have found
+-- and end the search on this branch
+| x `elem` xs = ps
+-- found a full path, add that to routes and end branch
+| x == f = (reverse $ x:xs):ps
+| otherwise = case M.lookup x m of
+Nothing -&amp;gt; ps
+Just ls -&amp;gt; foldl (\ps&#39; l-&amp;gt; findPaths&#39; (l:x:xs) ps&#39;) ps ls
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h2 id=&#34;shortest-of-the-paths&#34;&gt;Shortest of the Paths&lt;/h2&gt;
+&lt;p&gt;Now that we have a bunch of candidates for paths to final state, its time to find the shortest one. For that we just compare the length of each of the paths like so:&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&#34;language-haskell&#34;&gt;shortestPath :: [[State]] -&amp;gt; [State]
+shortestPath ps = foldl (\a x -&amp;gt; if (length a) &amp;gt; (length x)
+then x else a) (head ps) (tail ps)
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h2 id=&#34;putting-it-all-together&#34;&gt;Putting it all together&lt;/h2&gt;
+&lt;p&gt;Now we have all the pieces to solve a given &lt;code&gt;Problem&lt;/code&gt;.&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&#34;language-haskell&#34;&gt;solve :: Problem -&amp;gt; Maybe [State]
+solve p = if isPathPossible p ss
+then Just $ shortestPath $ findPaths p ss
+else Nothing
+where
+ss = allStates p
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;The returned type is a bit interesting, it says given a &lt;code&gt;Problem&lt;/code&gt; maybe we have a solution to get from initial to final state. :)&lt;/p&gt;
+&lt;h2 id=&#34;conclusion&#34;&gt;Conclusion&lt;/h2&gt;
+&lt;p&gt;To conclude for now let me present a simple REPL session.&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&#34;language-haskell&#34;&gt;&amp;gt; :l WaterJug.hs
+&amp;gt; solve $ newProblem 4 3 2 2
+Nothing
+&amp;gt;
+&amp;gt; solve $ newProblem 5 3 4 0
+Just [State (Jug 5 0) (Jug 3 0),State (Jug 5 5) (Jug 3 0),State (Jug 5 2) (Jug 3 3),State (Jug 5 2) (Jug 3 0),State (Jug 5 0) (Jug 3 2),State (Jug 5 5) (Jug 3 2),State (Jug 5 4) (Jug 3 3),State (Jug 5 4) (Jug 3 0)]
+&amp;gt;
+&amp;gt; solve $ newProblem 4 3 2 0
+Just [State (Jug 4 0) (Jug 3 0),State (Jug 4 0) (Jug 3 3),State (Jug 4 3) (Jug 3 0),State (Jug 4 3) (Jug 3 3),State (Jug 4 4) (Jug 3 2),State (Jug 4 0) (Jug 3 2),State (Jug 4 2) (Jug 3 0)]
+&amp;gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;Next time we will try to solve this for &lt;code&gt;n&lt;/code&gt; jugs.&lt;/p&gt;</description></item><item><title>Vagrant &amp; Saltstack Quickstart Tutorial</title><link>https://hittaruki.info/post/vagrant-saltstack-tutorial/</link><pubDate>Tue, 17 Mar 2015 20:56:46 &#43;0530</pubDate><author>Vignesh Sarma K</author><guid>https://hittaruki.info/post/vagrant-saltstack-tutorial/</guid><description>
+&lt;p&gt;This post is translated / inspired from very well written &lt;a href=&#34;http://adamcod.es/2014/09/23/vagrant-ansible-quickstart-tutorial.html&#34;&gt;Vagrant &amp;amp; Ansible Quickstart Tutorial&lt;/a&gt;. I was very much surprised that I couldn&amp;rsquo;t find a similar article which created some thing use full to get started with saltstack. The style of the article is very interesting in that it starts setting up a simple LAMP stack. As the article progresses the requirements for the stack are also changed and more features of ansible are exposed. This is the style I will try to follow.&lt;/p&gt;
+&lt;p&gt;I professionally use puppet, but am in general more inclined to the python ecosystem. This is one of the reasons that got me interested in Ansible and Saltstack. As I was researching both the frameworks this article &lt;a href=&#34;http://ryandlane.com/blog/2014/08/04/moving-away-from-puppet-saltstack-or-ansible/&#34;&gt;Moving away from Puppet: SaltStack or Ansible?&lt;/a&gt; comparing them got me leaning towards Saltstack. Since the above article explain why you might want to use Slatstack better than I possibly could, lets just get our hands dirty.&lt;/p&gt;
+&lt;h2 id=&#34;salt-and-vagrant&#34;&gt;Salt and Vagrant&lt;/h2&gt;
+&lt;p&gt;Ensure that a recent version(&amp;gt; 1.3.0) of Vagrant is installed, in older version you will have to install salt support to vagrant as a separate plugin. Vagrant will automatically download and install salt on a given machine so you don&amp;rsquo;t need to install it separately.&lt;/p&gt;
+&lt;h2 id=&#34;basics&#34;&gt;Basics&lt;/h2&gt;
+&lt;p&gt;We will start by creating a new directory to hold our project.&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;mkdir -p ~/Projects/vagrant-salt
+cd ~/Projects/vagrant-salt
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;Next, we can use Vagrant to create a new vagrant file based on the latest ubuntu image.&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;vagrant init ubuntu/trusty64
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;You should now have a file called Vagrantfile in the root of the directory. This contains some basic information about the box you want to provision, and then a whole bunch of commented out stuff you don&amp;rsquo;t need to worry about now. Remove all of the commented lines, so you&amp;rsquo;re left with the bare minimum:&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&#34;language-ruby&#34;&gt;Vagrant.configure(2) do |config|
+config.vm.box = &amp;quot;ubuntu/trusty64&amp;quot;
+end
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;We&amp;rsquo;ll need a way to access our webserver once it&amp;rsquo;s provisioned, so we&amp;rsquo;ll tell Vagrant to forward port 80 from our box to port 8080 on localhost. To do that, add the following line just before end:&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&#34;language-ruby&#34;&gt;config.vm.network &amp;quot;forwarded_port&amp;quot;, guest: 80, host: 8080
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;Now, there is one last thing we need to do to configure Vagrant, and then we&amp;rsquo;re finished with it. We need to tell Vagrant that we want to use Salt as its provisioner, and where to find the commands to run. To do this, add the following lines to your &lt;code&gt;Vagrantfile&lt;/code&gt;, again, just before &lt;code&gt;end&lt;/code&gt;:&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&#34;language-ruby&#34;&gt; config.vm.synced_folder &amp;quot;salt/roots/&amp;quot;, &amp;quot;/srv/salt/&amp;quot;
+config.vm.provision :salt do |salt|
+salt.minion_config = &amp;quot;salt/minion.yml&amp;quot;
+salt.run_highstate = true
+salt.colorize = true
+salt.log_level = &#39;info&#39;
+end
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;Once you&amp;rsquo;ve done that, the entire contents of your &lt;code&gt;Vagrantfile&lt;/code&gt; should look like this:&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&#34;language-ruby&#34;&gt;Vagrant.configure(2) do |config|
+config.vm.box = &amp;quot;ubuntu/trusty64&amp;quot;
+config.vm.network &amp;quot;forwarded_port&amp;quot;, guest: 80, host: 8080
+config.vm.synced_folder &amp;quot;salt/roots/&amp;quot;, &amp;quot;/srv/salt/&amp;quot;
+config.vm.provision :salt do |salt|
+salt.minion_config = &amp;quot;salt/minion.yml&amp;quot;
+salt.run_highstate = true
+salt.colorize = true
+salt.log_level = &#39;info&#39;
+end
+end
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h2 id=&#34;basic-terms&#34;&gt;Basic Terms&lt;/h2&gt;
+&lt;p&gt;Salt is more similar to &lt;em&gt;Puppet&lt;/em&gt; than &lt;em&gt;Ansible&lt;/em&gt; in that it tries to get the server to a specified state that you have described in your configuration. This is usually divided into smaller &lt;em&gt;SaltStates&lt;/em&gt; that describe a single thing. A &lt;em&gt;SaltState&lt;/em&gt; tell Salt how to achieve a state like setting up Apache as a service. Inside the state you will be able to specify how to install it using aptitude or what configuration to use etc.&lt;/p&gt;
+&lt;p&gt;Normally salt runs in &lt;em&gt;master slave&lt;/em&gt; mode. But here we are going to do master less setup. &lt;code&gt;Minion&lt;/code&gt; is the terminology used for &lt;code&gt;slaves&lt;/code&gt; in salt.&lt;/p&gt;
+&lt;h2 id=&#34;first-state&#34;&gt;First State&lt;/h2&gt;
+&lt;p&gt;Create a new file &lt;code&gt;salt/minion.yml&lt;/code&gt; with the following content:&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;master: localhost
+file_client: local
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;To install a LAMP stack, there are four basic steps we need to take:&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;Update Apt Cache&lt;/li&gt;
+&lt;li&gt;Install Apache&lt;/li&gt;
+&lt;li&gt;Install MySQL&lt;/li&gt;
+&lt;li&gt;Install PHP&lt;/li&gt;
+&lt;li&gt;Setup A PHP file to serve.&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;That&amp;rsquo;s kind of all we need to do. We&amp;rsquo;re using an ubuntu box, so all of that can be done via apt. To do that, we need to use SaltStack&amp;rsquo;s &lt;code&gt;pkg&lt;/code&gt; module. &lt;code&gt;pkg&lt;/code&gt; module abstracts common package related actions like &lt;code&gt;install&lt;/code&gt; and &lt;code&gt;remove&lt;/code&gt; between different system package managers. Any specific commands for a package manager will still be in a specialized salt-state. We also don&amp;rsquo;t need to explicitly call &lt;code&gt;apt-get update&lt;/code&gt;, that&amp;rsquo;s also internally taken care of by &lt;code&gt;pkg&lt;/code&gt; module. We will also use &lt;code&gt;file&lt;/code&gt; module to create a simple &lt;code&gt;php&lt;/code&gt; file for testing.&lt;/p&gt;
+&lt;p&gt;Add a file &lt;code&gt;salt/roots/top.sls&lt;/code&gt;&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;base:
+&#39;*&#39;:
+- base
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;Since we are using vagrant and we only have one host its ok to put star &lt;code&gt;*&lt;/code&gt; on where to run. &lt;code&gt;- base&lt;/code&gt; is what we are going to run on those servers.&lt;/p&gt;
+&lt;p&gt;Add a file &lt;code&gt;salt/roots/base.sls&lt;/code&gt;&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;apache:
+pkg.installed:
+- name: apache2
+mysql:
+pkg.installed:
+- name: mysql-server
+php:
+pkg.installed:
+- name: php5
+/var/www/html/info.php:
+file.managed:
+contents: &#39;&amp;lt;?php phpinfo();&#39;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;In the terminal &lt;code&gt;vagarant up&lt;/code&gt; and you should see output similar to the following.&lt;/p&gt;
+&lt;p&gt;That&amp;rsquo;s it. If all you wanted was a working LAMP server, you now have it.&lt;/p&gt;
+&lt;p&gt;And load it in your browser at &lt;a href=&#34;http://localhost:8080/info.php&#34;&gt;http://localhost:8080/info.php&lt;/a&gt; and you should see everything working as expected.&lt;/p&gt;
+&lt;h2 id=&#34;refactoring&#34;&gt;Refactoring&lt;/h2&gt;
+&lt;p&gt;The next setup for us here is to reduce the repetitiveness of this code. &lt;code&gt;pkg&lt;/code&gt; and many other salt modules allow you to give a list of item to apply this module to. For example in case of &lt;code&gt;pkg&lt;/code&gt; we can rewrite the piece like this.&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;install required packages:
+pkg.installed:
+- names:
+- apache2
+- mysql-server
+- php5
+/var/www/html/info.php:
+file.managed:
+- contents: &#39;&amp;lt;?php phpinfo();&#39;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;We reduced three separate states to just one. You can test it works by running &lt;code&gt;vagrant destroy&lt;/code&gt; followed by another &lt;code&gt;vagrant up&lt;/code&gt; in the root of your project.&lt;/p&gt;
+&lt;h2 id=&#34;modularize&#34;&gt;Modularize&lt;/h2&gt;
+&lt;p&gt;Usually, when you&amp;rsquo;re installing packages for a new server you want to do more than just install the packages - you probably want to configure them too. You might want to tell apache to use &lt;code&gt;/vargrant&lt;/code&gt; instead of &lt;code&gt;/var/www/html&lt;/code&gt; (which is the default location for vagrant to mount the current directory), or install &lt;code&gt;php_mysql&lt;/code&gt; and &lt;code&gt;php_pdo&lt;/code&gt; so you can access your MySQL Server from PHP.&lt;/p&gt;
+&lt;p&gt;There are two ways you can split this base module.&lt;/p&gt;
+&lt;h2 id=&#34;conculsion&#34;&gt;Conculsion&lt;/h2&gt;
+&lt;p&gt;Unlike many other infra automation tools you don&amp;rsquo;t need to know many salt specific terminologies. Salt has very minimal concepts. Unlike &lt;code&gt;Ansible&lt;/code&gt; there is no special roles. You just split it into modules and arrange the files as you see fit.&lt;/p&gt;</description></item><item><title>Faster Django tests</title><link>https://hittaruki.info/post/faster-django-tests/</link><pubDate>Sat, 29 Jun 2013 11:41:14 &#43;0530</pubDate><author>Vignesh Sarma K</author><guid>https://hittaruki.info/post/faster-django-tests/</guid><description>&lt;p&gt;Tests in django can quickly get annoyingly slow as you build up more and more tests. Two thing I found that significantly improves performance are:&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;Switching the test database to something like sqlite.&lt;/li&gt;
+&lt;li&gt;Run test concurrently.&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;Both of these can be archived fairly easily.&lt;/p&gt;
+&lt;p&gt;##Using different database for testing&lt;/p&gt;
+&lt;p&gt;Using sqlite during testing is fairly easy. This is specified in &lt;a href=&#34;http://stackoverflow.com/questions/3799061/speeding-up-django-testing&#34;&gt;answer 1&lt;/a&gt; and &lt;a href=&#34;http://stackoverflow.com/questions/3096148/how-to-run-djangos-test-database-only-in-memory&#34;&gt;answer 2&lt;/a&gt;. Since &lt;code&gt;sqlite&lt;/code&gt; is now part of the python standard library you don&amp;rsquo;t need to install any thing new. In your &lt;code&gt;settings.py&lt;/code&gt; file add&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;#Django 1.3 and 1.4:
+if &#39;test&#39; in sys.argv:
+DATABASES[&#39;default&#39;] = {&#39;ENGINE&#39;: &#39;django.db.backends.sqlite3&#39;}
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;This significantly increases the performance of tests. According to &lt;code&gt;answer 2&lt;/code&gt; django automatically creates the databases in memory if the database used is in &lt;code&gt;sqlite&lt;/code&gt;.&lt;/p&gt;
+&lt;p&gt;##Running tests concurrently&lt;/p&gt;
+&lt;p&gt;I had been looking for a way to do this for quiet a while now. Then recently an &lt;a href=&#34;http://coreygoldberg.blogspot.ca/2013/06/python-concurrencytest-running.html&#34;&gt;article&lt;/a&gt; on &lt;a href=&#34;http://pycoders.com/&#34;&gt;Pycoder Weekly&lt;/a&gt; about running tests concurrently set me on the right track.&lt;/p&gt;
+&lt;p&gt;First you will have to install &lt;a href=&#34;https://github.com/cgoldberg/concurrencytest&#34;&gt;concurrencytest&lt;/a&gt;:&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&#34;language-sh&#34;&gt;$ pip install concurrencytest
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;Now to customize it for django add this class and related imports in a path that is accessible to django.&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;from django.test.simple import DjangoTestSuiteRunner
+from django.utils import unittest
+from concurrencytest import ConcurrentTestSuite, fork_for_tests
+class MyTestSuiteRunner(DjangoTestSuiteRunner):
+def run_suite(self, suite, **kwargs):
+return unittest.TextTestRunner(
+verbosity=self.verbosity, failfast=self.failfast).run(
+ConcurrentTestSuite(suite, fork_for_tests(4)))
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;Also update your &lt;code&gt;settings.py&lt;/code&gt; file to set this as the &lt;code&gt;test runner&lt;/code&gt; like so.&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;TEST_RUNNER = &#39;path.to.MyTestSuiteRunner&#39;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;This has some covets though, each test case should be completely independent of each other. If you have some external file or resource that is shared read and written on to, this could case some of the tests to fail.&lt;/p&gt;</description></item><item><title>Clojure Java Inter-op and Google Drive Api - Part I</title><link>https://hittaruki.info/post/clojure-java-interop-and-google-drive-api-part-i/</link><pubDate>Fri, 28 Jun 2013 01:42:14 &#43;0530</pubDate><author>Vignesh Sarma K</author><guid>https://hittaruki.info/post/clojure-java-interop-and-google-drive-api-part-i/</guid><description>
+&lt;p&gt;One of the biggest advantages of Clojure claimed by its community is its interoperability with java. I decided to take take them on there word and test it out with Google drive api, and see how flexible and native it feels.&lt;/p&gt;
+&lt;p&gt;We will convert a simple program given on the main documentation page of Google Drive api page to a Clojure program. First we will try to keep it as same as there implementation having least amount of changes. Later we will try to make it more Clojure like, by using its native libraries and using Google libraries to a minimum.&lt;/p&gt;
+&lt;p&gt;You will have to do the basic setup form this &lt;a href=&#34;https://developers.google.com/drive/quickstart-java&#34;&gt;page&lt;/a&gt;. May be even give a quick look a the java implementation, because we will be following it quite faithfully.&lt;/p&gt;
+&lt;h2 id=&#34;setup&#34;&gt;Setup&lt;/h2&gt;
+&lt;p&gt;First you should create a new lein project:&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&#34;language-clojure&#34;&gt;$ lein new sample-drive app
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;This will create a set of files and some basic stuff. Now you will have to add some dependencies add required libraries to the &lt;code&gt;project.clj&lt;/code&gt; file.
+You should be able to find this file at the root of the new project &lt;code&gt;lein&lt;/code&gt; created for you. Change it to look some thing like this.&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&#34;language-clojure&#34;&gt;(defproject simple-drive &amp;quot;0.1.0-SNAPSHOT&amp;quot;
+:description &amp;quot;FIXME: write description&amp;quot;
+:url &amp;quot;http://example.com/FIXME&amp;quot;
+:license {:name &amp;quot;Eclipse Public License&amp;quot;
+:url &amp;quot;http://www.eclipse.org/legal/epl-v10.html&amp;quot;}
+:dependencies [[org.clojure/clojure &amp;quot;1.5.1&amp;quot;]
+[com.google.oauth-client/google-oauth-client &amp;quot;1.15.0-rc&amp;quot;]
+[com.google.http-client/google-http-client-jackson &amp;quot;1.15.0-rc&amp;quot;]
+[com.google.apis/google-api-services-drive &amp;quot;v2-rev79-1.15.0-rc&amp;quot;]]
+:main simple-drive.core)
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;&lt;code&gt;google-api-services-drive&lt;/code&gt; is the the only library explicitly mentioned on the download page. But the other (&lt;code&gt;google-oauth-client&lt;/code&gt;, &lt;code&gt;google-http-client-jackson&lt;/code&gt;) are dependencies. You could use third party libraries that provide similar functionality like, &lt;code&gt;clj-oauth2&lt;/code&gt;.&lt;/p&gt;
+&lt;p&gt;Another interesting not is we are getting them from maven repositories, which are essentially cpan or pypy like function for java. And the fact that we are even able to leverage that from Clojure is amazing.&lt;/p&gt;
+&lt;h2 id=&#34;program&#34;&gt;Program&lt;/h2&gt;
+&lt;p&gt;The program itself is a single function in the given sample, but will split it up slightly so that we can keep the main program in a single let statement. Much of the code is java directly converted to clojure.&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&#34;language-clojure&#34;&gt;(ns simple-drive.core
+(:gen-class))
+(import &#39;(com.google.api.client.googleapis.auth.oauth2
+GoogleAuthorizationCodeFlow GoogleCredential
+GoogleTokenResponse GoogleAuthorizationCodeFlow$Builder)
+&#39;(com.google.api.client.http FileContent HttpTransport)
+&#39;(com.google.api.client.http.javanet NetHttpTransport)
+&#39;(com.google.api.client.json JsonFactory)
+&#39;(com.google.api.client.json.jackson JacksonFactory)
+&#39;(com.google.api.services.drive Drive DriveScopes Drive$Builder)
+&#39;(com.google.api.services.drive.model File))
+(require &#39;clojure.java.io)
+;; you have to get your own from google as mentioned in the help page.
+(def CLIENT_ID &amp;quot;SECRET_ID&amp;quot;)
+(def CLIENT_SECRET &amp;quot;SECRET_KEY&amp;quot;)
+(def REDIRECT_URI &amp;quot;urn:ietf:wg:oauth:2.0:oob&amp;quot;)
+(defn get-auth-code [url]
+(println &amp;quot;Please open the following URL in your browser &amp;quot;
+&amp;quot;then type the authorization code:&amp;quot;)
+(println (str &amp;quot; &amp;quot; url))
+(read-line))
+(defn insert-file []
+(let [body (new File)]
+(doto body
+(.setTitle &amp;quot;Readme&amp;quot;)
+(.setDescription &amp;quot;A test document&amp;quot;)
+(.setMimeType &amp;quot;text/plain&amp;quot;))
+body))
+(defn do-the-stuff
+[]
+(let [httpTransport (new NetHttpTransport)
+jsonFactory (new JacksonFactory)
+flow (-&amp;gt; (new GoogleAuthorizationCodeFlow$Builder httpTransport
+jsonFactory CLIENT_ID CLIENT_SECRET
+(list (. DriveScopes DRIVE)))
+(.setAccessType &amp;quot;online&amp;quot;)
+(.setApprovalPrompt &amp;quot;auto&amp;quot;)
+(.build))
+url (-&amp;gt; (.newAuthorizationUrl flow)
+(.setRedirectUri REDIRECT_URI)
+(.build))
+code (get-auth-code url)
+response (-&amp;gt; (.newTokenRequest flow code)
+(.setRedirectUri REDIRECT_URI)
+(.execute))
+credential (-&amp;gt; (new GoogleCredential)
+(.setFromTokenResponse response))
+;; Create a new authorized API client
+service (-&amp;gt; (new Drive$Builder httpTransport
+jsonFactory credential) (.build))
+body (insert-file)
+fileContent (clojure.java.io/file &amp;quot;README.md&amp;quot;)
+mediaContent (new FileContent &amp;quot;text/plain&amp;quot; fileContent)
+file (-&amp;gt; (.files service)
+(.insert body mediaContent)
+(.execute))]
+(println &amp;quot;File ID:&amp;quot; (.getId file))))
+(defn -main
+&amp;quot;This is the equvalent of public static void main.&amp;quot;
+[&amp;amp; args]
+;; work around dangerous default behaviour in Clojure
+(alter-var-root #&#39;*read-eval* (constantly false))
+(do-the-stuff))
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;Some of the stuff you might note, are that we have to explicitly import all the java inner classes. In java these are available to you if you just import the containing class.
+The whole program is written in a imperative manner, you set a whole bunch of variables, in between you do a few things.
+Instead of &lt;code&gt;(new classname &amp;amp;args)&lt;/code&gt; we could have just said &lt;code&gt;(classname. &amp;amp;args)&lt;/code&gt;.&lt;/p&gt;</description></item><item><title>Checking Out Jekyll</title><link>https://hittaruki.info/post/checking-out-jekyll/</link><pubDate>Fri, 29 Jun 2012 00:31:14 &#43;0530</pubDate><author>Vignesh Sarma K</author><guid>https://hittaruki.info/post/checking-out-jekyll/</guid><description>&lt;p&gt;When I first saw the project Jekyll, the concept of generating static files form dynamic templates, and then displaying them instead of rendering templates each time seemed awesome and correct.But more than anything else it was the geekiness of it that attracted me the most. Here I am sitting in front of Emacs a typing this post, where if in another platform, I world have had to do it on some weird web-interface.&lt;/p&gt;
+&lt;p&gt;So I started creating my site in Jekyll, but soon I found that some thing was missing. Now I had to manually do all the styling, where in another platform, it could be handed over to a theme. But I did put a serious effort in trying to create my own style, and css files, but soon found that I had little taste and even less patientance for it.&lt;/p&gt;
+&lt;p&gt;At this point one day I was reading a blog, on some site and suddenly thought that the blog looked nice. A looking around to find on what blog engine it was built on lead me to octopress.org. With in a few minutes I was sure this was exactly what I was looking for.&lt;/p&gt;
+&lt;p&gt;Octopress has a simple but beautiful theaming system.With considerable selection.
+Octopress works with Jekyll, to create static pages, but also acts as a simplifying wrapper on Jekyll.
+So I started immediately, to setup the site in octopress,&lt;/p&gt;</description></item></channel></rss>

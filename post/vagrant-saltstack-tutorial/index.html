@@ -1,0 +1,58 @@
+<!doctype html><html xmlns=http://www.w3.org/1999/xhtml xml:lang=en-us lang=en-us><head><link href=http://gmpg.org/xfn/11 rel=profile><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1,maximum-scale=1"><title>Vagrant &amp; Saltstack Quickstart Tutorial &middot; No Title</title><link href=/webfonts/junction.css rel=stylesheet type=text/css><link rel=stylesheet href=//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/tomorrow.min.css><link rel=stylesheet href=/css/poole.css><link rel=stylesheet href=/css/lanyon.css><link rel=stylesheet href=/css/style.css><link rel="shortcut icon" href=/favicon.ico><link href=/index.xml rel=alternate type=application/rss+xml title="No Title"></head><body><div class=masthead><div class=container><h3 class=masthead-title><a href=/ title=Home>No Title</a>
+<small>When I finaly take it upon myself to write, this is what happens!!!</small></h3></div></div><div class="content container"><div class=post><h1>Vagrant &amp; Saltstack Quickstart Tutorial</h1><span class=post-date>Mar 17, 2015</span><p>This post is translated / inspired from very well written <a href=http://adamcod.es/2014/09/23/vagrant-ansible-quickstart-tutorial.html>Vagrant &amp; Ansible Quickstart Tutorial</a>. I was very much surprised that I couldn&rsquo;t find a similar article which created some thing use full to get started with saltstack. The style of the article is very interesting in that it starts setting up a simple LAMP stack. As the article progresses the requirements for the stack are also changed and more features of ansible are exposed. This is the style I will try to follow.</p><p>I professionally use puppet, but am in general more inclined to the python ecosystem. This is one of the reasons that got me interested in Ansible and Saltstack. As I was researching both the frameworks this article <a href=http://ryandlane.com/blog/2014/08/04/moving-away-from-puppet-saltstack-or-ansible/>Moving away from Puppet: SaltStack or Ansible?</a> comparing them got me leaning towards Saltstack. Since the above article explain why you might want to use Slatstack better than I possibly could, lets just get our hands dirty.</p><h2 id=salt-and-vagrant>Salt and Vagrant</h2><p>Ensure that a recent version(&gt; 1.3.0) of Vagrant is installed, in older version you will have to install salt support to vagrant as a separate plugin. Vagrant will automatically download and install salt on a given machine so you don&rsquo;t need to install it separately.</p><h2 id=basics>Basics</h2><p>We will start by creating a new directory to hold our project.</p><pre><code>mkdir -p ~/Projects/vagrant-salt
+cd ~/Projects/vagrant-salt
+</code></pre><p>Next, we can use Vagrant to create a new vagrant file based on the latest ubuntu image.</p><pre><code>vagrant init ubuntu/trusty64
+</code></pre><p>You should now have a file called Vagrantfile in the root of the directory. This contains some basic information about the box you want to provision, and then a whole bunch of commented out stuff you don&rsquo;t need to worry about now. Remove all of the commented lines, so you&rsquo;re left with the bare minimum:</p><pre><code class=language-ruby>Vagrant.configure(2) do |config|
+  config.vm.box = &quot;ubuntu/trusty64&quot;
+end
+</code></pre><p>We&rsquo;ll need a way to access our webserver once it&rsquo;s provisioned, so we&rsquo;ll tell Vagrant to forward port 80 from our box to port 8080 on localhost. To do that, add the following line just before end:</p><pre><code class=language-ruby>config.vm.network &quot;forwarded_port&quot;, guest: 80, host: 8080
+</code></pre><p>Now, there is one last thing we need to do to configure Vagrant, and then we&rsquo;re finished with it. We need to tell Vagrant that we want to use Salt as its provisioner, and where to find the commands to run. To do this, add the following lines to your <code>Vagrantfile</code>, again, just before <code>end</code>:</p><pre><code class=language-ruby>  config.vm.synced_folder &quot;salt/roots/&quot;, &quot;/srv/salt/&quot;
+
+  config.vm.provision :salt do |salt|
+    salt.minion_config = &quot;salt/minion.yml&quot;
+    salt.run_highstate = true
+    salt.colorize = true
+    salt.log_level = 'info'
+  end
+</code></pre><p>Once you&rsquo;ve done that, the entire contents of your <code>Vagrantfile</code> should look like this:</p><pre><code class=language-ruby>Vagrant.configure(2) do |config|
+  config.vm.box = &quot;ubuntu/trusty64&quot;
+  config.vm.network &quot;forwarded_port&quot;, guest: 80, host: 8080
+
+  config.vm.synced_folder &quot;salt/roots/&quot;, &quot;/srv/salt/&quot;
+
+  config.vm.provision :salt do |salt|
+    salt.minion_config = &quot;salt/minion.yml&quot;
+    salt.run_highstate = true
+    salt.colorize = true
+    salt.log_level = 'info'
+  end
+end
+</code></pre><h2 id=basic-terms>Basic Terms</h2><p>Salt is more similar to <em>Puppet</em> than <em>Ansible</em> in that it tries to get the server to a specified state that you have described in your configuration. This is usually divided into smaller <em>SaltStates</em> that describe a single thing. A <em>SaltState</em> tell Salt how to achieve a state like setting up Apache as a service. Inside the state you will be able to specify how to install it using aptitude or what configuration to use etc.</p><p>Normally salt runs in <em>master slave</em> mode. But here we are going to do master less setup. <code>Minion</code> is the terminology used for <code>slaves</code> in salt.</p><h2 id=first-state>First State</h2><p>Create a new file <code>salt/minion.yml</code> with the following content:</p><pre><code class=language-yaml>master: localhost
+file_client: local
+</code></pre><p>To install a LAMP stack, there are four basic steps we need to take:</p><ol><li>Update Apt Cache</li><li>Install Apache</li><li>Install MySQL</li><li>Install PHP</li><li>Setup A PHP file to serve.</li></ol><p>That&rsquo;s kind of all we need to do. We&rsquo;re using an ubuntu box, so all of that can be done via apt. To do that, we need to use SaltStack&rsquo;s <code>pkg</code> module. <code>pkg</code> module abstracts common package related actions like <code>install</code> and <code>remove</code> between different system package managers. Any specific commands for a package manager will still be in a specialized salt-state. We also don&rsquo;t need to explicitly call <code>apt-get update</code>, that&rsquo;s also internally taken care of by <code>pkg</code> module. We will also use <code>file</code> module to create a simple <code>php</code> file for testing.</p><p>Add a file <code>salt/roots/top.sls</code></p><pre><code class=language-yaml>base:
+  '*':
+  - base
+</code></pre><p>Since we are using vagrant and we only have one host its ok to put star <code>*</code> on where to run. <code>- base</code> is what we are going to run on those servers.</p><p>Add a file <code>salt/roots/base.sls</code></p><pre><code class=language-yaml>apache:
+  pkg.installed:
+    - name: apache2
+mysql:
+  pkg.installed:
+    - name: mysql-server
+php:
+  pkg.installed:
+    - name: php5
+
+/var/www/html/info.php:
+  file.managed:
+    contents: '&lt;?php phpinfo();'
+</code></pre><p>In the terminal <code>vagarant up</code> and you should see output similar to the following.</p><p>That&rsquo;s it. If all you wanted was a working LAMP server, you now have it.</p><p>And load it in your browser at <a href=http://localhost:8080/info.php>http://localhost:8080/info.php</a> and you should see everything working as expected.</p><h2 id=refactoring>Refactoring</h2><p>The next setup for us here is to reduce the repetitiveness of this code. <code>pkg</code> and many other salt modules allow you to give a list of item to apply this module to. For example in case of <code>pkg</code> we can rewrite the piece like this.</p><pre><code class=language-yaml>install required packages:
+  pkg.installed:
+    - names:
+      - apache2
+      - mysql-server
+      - php5
+
+/var/www/html/info.php:
+  file.managed:
+    - contents: '&lt;?php phpinfo();'
+</code></pre><p>We reduced three separate states to just one. You can test it works by running <code>vagrant destroy</code> followed by another <code>vagrant up</code> in the root of your project.</p><h2 id=modularize>Modularize</h2><p>Usually, when you&rsquo;re installing packages for a new server you want to do more than just install the packages - you probably want to configure them too. You might want to tell apache to use <code>/vargrant</code> instead of <code>/var/www/html</code> (which is the default location for vagrant to mount the current directory), or install <code>php_mysql</code> and <code>php_pdo</code> so you can access your MySQL Server from PHP.</p><p>There are two ways you can split this base module.</p><h2 id=conculsion>Conculsion</h2><p>Unlike many other infra automation tools you don&rsquo;t need to know many salt specific terminologies. Salt has very minimal concepts. Unlike <code>Ansible</code> there is no special roles. You just split it into modules and arrange the files as you see fit.</p></div></div><footer><link href=//cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css rel=stylesheet><div class=container><div class=footer-col-wrapper><ul class=social-media-list><li><b>Hittaruki.info</b></li><li><a href=/about/><i class="fa fa-at fa-lg"></i>About</a></li><li><a href=https://github.com/vigneshsarma><i class="fa fa-github-alt fa-lg"></i><span class=username>vigneshsarma</span></a></li><li><a href=https://twitter.com/vigneshsarma><i class="fa fa-twitter fa-lg"></i><span class=username>vigneshsarma</span></a></li><li><a href=https://www.linkedin.com/in/vigneshsarma/><i class="fa fa-linkedin fa-lg"></i></a></li><li><a href=https://www.instagram.com/vigneshsarma><i class="fa fa-instagram fa-lg"></i></a></li><li><a href=/index.xml><i class="fa fa-rss fa-lg"></i></a></li></ul></div></div></footer><script src=//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js></script><script src=//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/clojure-repl.min.js></script><script src=//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/clojure.min.js></script><script src=//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/haskell.min.js></script><script src=//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/yaml.min.js></script><script>(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)})(window,document,'script','//www.google-analytics.com/analytics.js','ga');ga('create','UA-34515323-1','auto');ga('send','pageview');</script><script>hljs.initHighlightingOnLoad();</script></body></html>
